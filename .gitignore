@@ -1,0 +1,18 @@
+# 3D models
+*.step
+*.stp
+*.stl
+*.wrl
+
+# JLCPCB outputs
+jlcpcb/
+
+# KiCad temp / backups
+*-backups/
+fp-info-cache
+*.kicad_prl
+*.lck
+\#auto_saved_files#
+_autosave-*
+.history/
+*.log
