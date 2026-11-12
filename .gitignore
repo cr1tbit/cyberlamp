@@ -7,6 +7,8 @@
 # JLCPCB outputs
 jlcpcb/
 
+.history
+
 # KiCad temp / backups
 *-backups/
 fp-info-cache
