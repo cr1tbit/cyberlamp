@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberlamp Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #fffbe6; /* light yellow */
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #ffd54f; /* yellow */
+            color: #333;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover:not(:disabled) {
+            background: #fbc02d;
+        }
+        button:disabled {
+            background: #ffe082;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .status {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: monospace;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .controls {
+            margin-top: 20px;
+        }
+        .controls.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .modes {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .modes button {
+            margin: 0;
+            padding: 12px 0;
+        }
+        .modes button.active {
+            background: #f9a825;
+            color: #000;
+            font-weight: bold;
+            box-shadow: inset 0 0 0 2px #333;
+        }
+        .slider {
+            margin: 24px 0 8px;
+        }
+        .slider label {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .slider input[type=range] {
+            width: 100%;
+            accent-color: #f9a825;
+        }
+        .slider .ends {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #666;
+        }
+        .slider.unused {
+            opacity: 0.4;
+        }
+        .row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .row input[type=text] {
+            flex: 1;
+            min-width: 0;
+            padding: 11px;
+            font-family: monospace;
+            font-size: 16px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            height: 160px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+        }
+        .log .rx { color: #555; }
+        .log .tx-ok { color: #155724; }
+        .log .tx-err { color: #721c24; }
+        .info {
+            background: #fff8e1;
+            border: 1px solid #ffe082;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 24px;
+        }
+        code {
+            background: #fff3c4;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cyberlamp Control</h1>
+
+        <p>Connects to the lamp over Bluetooth (Nordic UART Service) and sends the same text
+            commands you would type in a serial terminal.</p>
+
+        <label style="display:block; margin: 8px 0;">
+            <input type="checkbox" id="showAllCheckbox">
+            Show all Bluetooth devices (if the lamp doesn't appear in the list)
+        </label>
+
+        <button id="connectBtn">Connect to Lamp</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+
+        <div id="status" class="status">Ready to connect...</div>
+
+        <div id="controls" class="controls disabled">
+            <h3>Mode</h3>
+            <div class="modes">
+                <button data-mode="wh">White</button>
+                <button data-mode="sp">Spread</button>
+                <button data-mode="uv">UV</button>
+                <button data-mode="ir">IR</button>
+            </div>
+
+            <div class="slider">
+                <label for="brightness">Brightness <span id="brightnessValue">-</span></label>
+                <input type="range" id="brightness" min="0" max="40" value="0">
+                <div class="ends"><span>off</span><span>max</span></div>
+            </div>
+
+            <div class="slider" id="mixSlider">
+                <label for="mix">Colour temperature <span id="mixValue">-</span></label>
+                <input type="range" id="mix" min="0" max="40" value="20">
+                <div class="ends"><span>cool</span><span>warm</span></div>
+            </div>
+
+            <div class="row" style="margin-top: 16px;">
+                <button id="refreshBtn">Read state</button>
+                <label><input type="checkbox" id="autoRefresh"> refresh every 3 s</label>
+            </div>
+
+            <h3>Console</h3>
+            <div class="row">
+                <input type="text" id="commandInput" placeholder="e.g. st, br 20, md sp" autocomplete="off">
+                <button id="sendBtn">Send</button>
+            </div>
+            <div id="log" class="log"></div>
+        </div>
+
+        <section class="info">
+            <h2>How to use</h2>
+            <p>
+                Use Chrome or Edge (desktop or Android). Web Bluetooth only works on pages served over
+                <code>https://</code> or from <code>http://localhost</code>, for example:
+                <code>python3 -m http.server</code> in this directory, then open
+                <code>http://localhost:8000/lamp_control.html</code>.
+            </p>
+            <p>
+                <b>White</b> dims with software PWM on the LED drivers' output enable.
+                <b>Spread</b> keeps the outputs on all the time and sets the brightness by the number of
+                lit LEDs, spread over the lamp, so Bluetooth activity can't make it flicker. Colour
+                temperature applies to both white modes; each mode remembers its own brightness.
+            </p>
+            <p>
+                Changes made with the knob don't show up here by themselves: press <b>Read state</b>,
+                or enable the periodic refresh. Settings are saved to the lamp's flash two seconds after
+                the last change.
+            </p>
+            <p>
+                Console commands: <code>br 0..40</code> brightness, <code>mx 0..40</code> colour mix,
+                <code>md wh|sp|uv|ir</code> mode, <code>st</code> status, <code>he</code> help.
+            </p>
+        </section>
+    </div>
+
+    <script>
+        const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const NUS_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // we write commands here
+        const NUS_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // lamp notifies replies here
+        const MAX_WRITE = 20; // ATT MTU 23
+        const REPLY_TIMEOUT_MS = 5000;
+
+        const $ = (id) => document.getElementById(id);
+        const connectBtn = $('connectBtn');
+        const disconnectBtn = $('disconnectBtn');
+        const statusDiv = $('status');
+        const controls = $('controls');
+        const brightness = $('brightness');
+        const mix = $('mix');
+        const logDiv = $('log');
+
+        let device = null;
+        let rx = null;
+        let tx = null;
+        let rxText = '';
+        let pendingReply = null; // {resolve, reject, timer}
+        let queue = Promise.resolve();
+        let mode = null;
+        let refreshTimer = null;
+
+        function updateStatus(message, type = '') {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+        }
+
+        function log(text, cls) {
+            const line = document.createElement('div');
+            line.className = cls;
+            line.textContent = text;
+            logDiv.appendChild(line);
+            while (logDiv.childNodes.length > 200) logDiv.removeChild(logDiv.firstChild);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        (function checkWebBluetoothSupport() {
+            if (!('bluetooth' in navigator)) {
+                updateStatus('Web Bluetooth not available. Use Chrome/Edge and load over https:// or http://localhost (not file://).', 'error');
+                connectBtn.disabled = true;
+            } else if (!window.isSecureContext) {
+                updateStatus('This page must be served from a secure context (https:// or http://localhost).', 'error');
+                connectBtn.disabled = true;
+            }
+        })();
+
+        // ---- NUS line protocol: one command in flight, reply is one newline-terminated line ----
+
+        function onNotification(event) {
+            rxText += new TextDecoder().decode(event.target.value);
+            let nl;
+            while ((nl = rxText.indexOf('\n')) >= 0) {
+                const line = rxText.slice(0, nl).replace(/\r$/, '');
+                rxText = rxText.slice(nl + 1);
+                log('< ' + line, line.startsWith('OK') ? 'tx-ok' : 'tx-err');
+                if (pendingReply) {
+                    clearTimeout(pendingReply.timer);
+                    pendingReply.resolve(line);
+                    pendingReply = null;
+                }
+            }
+        }
+
+        async function sendRaw(command) {
+            const bytes = new TextEncoder().encode(command + '\n');
+            const reply = new Promise((resolve, reject) => {
+                pendingReply = {
+                    resolve,
+                    reject,
+                    timer: setTimeout(() => {
+                        pendingReply = null;
+                        reject(new Error('No reply to "' + command + '"'));
+                    }, REPLY_TIMEOUT_MS),
+                };
+            });
+            log('> ' + command, 'rx');
+            for (let i = 0; i < bytes.length; i += MAX_WRITE) {
+                await rx.writeValueWithResponse(bytes.slice(i, i + MAX_WRITE));
+            }
+            return reply;
+        }
+
+        /** Queue a command; the lamp handles one at a time. */
+        function send(command) {
+            const result = queue.then(() => sendRaw(command));
+            queue = result.catch(() => {});
+            return result;
+        }
+
+        // ---- UI state ----
+
+        function parseStatus(line) {
+            if (!line.startsWith('OK mode=')) return null;
+            const fields = {};
+            for (const part of line.slice(3).split(' ')) {
+                const [key, value] = part.split('=');
+                fields[key] = value;
+            }
+            return fields;
+        }
+
+        const MODE_SHORT = { white: 'wh', spread: 'sp', uv: 'uv', ir: 'ir' };
+
+        function showMode(short) {
+            mode = short;
+            document.querySelectorAll('.modes button').forEach((b) => {
+                b.classList.toggle('active', b.dataset.mode === short);
+            });
+            $('mixSlider').classList.toggle('unused', !(short === 'wh' || short === 'sp'));
+        }
+
+        function showBrightness(value) {
+            brightness.value = value;
+            $('brightnessValue').textContent = value;
+        }
+
+        function showMix(value) {
+            mix.value = value;
+            $('mixValue').textContent = value;
+        }
+
+        async function refresh() {
+            const state = parseStatus(await send('st'));
+            if (!state) return;
+            showMode(MODE_SHORT[state.mode] || null);
+            // don't jump the slider while the user is dragging it
+            if (!sliderBusy.brightness) showBrightness(state.brightness);
+            if (!sliderBusy.mix) showMix(state.mix);
+        }
+
+        // Sliders: send the latest value only, never queue a backlog while dragging.
+        const sliderBusy = { brightness: false, mix: false };
+        function bindSlider(input, name, command, show) {
+            let sending = false;
+            let dirty = false;
+            async function flush() {
+                if (sending) { dirty = true; return; }
+                sending = true;
+                try {
+                    do {
+                        dirty = false;
+                        await send(command + ' ' + input.value);
+                    } while (dirty);
+                } catch (e) {
+                    updateStatus('Error: ' + e.message, 'error');
+                } finally {
+                    sending = false;
+                }
+            }
+            input.addEventListener('input', () => {
+                sliderBusy[name] = true;
+                show(input.value);
+                flush();
+            });
+            input.addEventListener('change', () => { sliderBusy[name] = false; });
+        }
+        bindSlider(brightness, 'brightness', 'br', showBrightness);
+        bindSlider(mix, 'mix', 'mx', showMix);
+
+        document.querySelectorAll('.modes button').forEach((button) => {
+            button.addEventListener('click', async () => {
+                try {
+                    await send('md ' + button.dataset.mode);
+                    await refresh(); // each mode has its own brightness
+                } catch (e) {
+                    updateStatus('Error: ' + e.message, 'error');
+                }
+            });
+        });
+
+        $('refreshBtn').addEventListener('click', () => refresh().catch((e) => updateStatus('Error: ' + e.message, 'error')));
+
+        $('autoRefresh').addEventListener('change', (event) => {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+            if (event.target.checked) {
+                refreshTimer = setInterval(() => {
+                    if (rx && !sliderBusy.brightness && !sliderBusy.mix) refresh().catch(() => {});
+                }, 3000);
+            }
+        });
+
+        async function sendConsole() {
+            const command = $('commandInput').value.trim();
+            if (!command) return;
+            $('commandInput').value = '';
+            try {
+                await send(command);
+                await refresh();
+            } catch (e) {
+                updateStatus('Error: ' + e.message, 'error');
+            }
+        }
+        $('sendBtn').addEventListener('click', sendConsole);
+        $('commandInput').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') sendConsole();
+        });
+
+        // ---- Connection ----
+
+        function resetUiAfterDisconnect(message) {
+            updateStatus(message, 'error');
+            connectBtn.textContent = 'Connect to Lamp';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            controls.classList.add('disabled');
+            if (pendingReply) {
+                clearTimeout(pendingReply.timer);
+                pendingReply.reject(new Error('Disconnected'));
+                pendingReply = null;
+            }
+            rx = null;
+            tx = null;
+            device = null;
+            rxText = '';
+            queue = Promise.resolve();
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                updateStatus('Scanning for devices...');
+                const options = $('showAllCheckbox').checked
+                    ? { acceptAllDevices: true, optionalServices: [NUS_SERVICE] }
+                    : { filters: [{ services: [NUS_SERVICE] }] };
+                device = await navigator.bluetooth.requestDevice(options);
+                device.addEventListener('gattserverdisconnected', () => resetUiAfterDisconnect('Lamp disconnected'));
+
+                updateStatus('Connecting...');
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(NUS_SERVICE);
+                rx = await service.getCharacteristic(NUS_RX);
+                tx = await service.getCharacteristic(NUS_TX);
+                await tx.startNotifications();
+                tx.addEventListener('characteristicvaluechanged', onNotification);
+                // the lamp drops a partial line on (re)connect; a blank line resynchronizes it too
+                await rx.writeValueWithResponse(new TextEncoder().encode('\n'));
+
+                updateStatus('Connected to: ' + (device.name || 'cyberlamp'), 'success');
+                connectBtn.textContent = 'Connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                controls.classList.remove('disabled');
+                await refresh();
+            } catch (error) {
+                updateStatus('Error: ' + error.message, 'error');
+                console.error('Connection failed:', error);
+                if (device && device.gatt.connected) device.gatt.disconnect();
+            }
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect(); // fires gattserverdisconnected
+            } else {
+                resetUiAfterDisconnect('Disconnected');
+            }
+        });
+    </script>
+</body>
+</html>
