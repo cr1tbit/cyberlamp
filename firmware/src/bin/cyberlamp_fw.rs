@@ -35,6 +35,12 @@ const CW_LED_ADDRESSES: &[usize] = &[3, 4, 8, 9, 14, 19, 20, 24, 25, 30, 35, 36,
 const WW_LED_ADDRESSES: &[usize] = &[0, 7, 10, 13, 15, 16, 23, 26, 29, 31, 32, 39, 42, 45, 47];
 const UV_LED_ADDRESSES: &[usize] = &[1, 2, 5, 6, 17, 18, 21, 22, 33, 34, 37, 38];
 const IR_LED_ADDRESSES: &[usize] = &[11, 12, 27, 28, 43, 44];
+/// Spread mode lights the first N LEDs of these lists. Farthest-point order, computed from the
+/// LED positions in cyberlamp-light.kicad_pcb: each next LED is the one farthest from all LEDs
+/// already lit, so any count is spread over the three sectors of the lamp. CW starts near the
+/// centre, WW starts far from the first CW LED.
+const CW_SPREAD_ORDER: [usize; 15] = [25, 35, 9, 30, 14, 41, 19, 4, 46, 24, 20, 3, 36, 8, 40];
+const WW_SPREAD_ORDER: [usize; 15] = [32, 7, 29, 13, 39, 10, 42, 45, 0, 16, 26, 15, 47, 23, 31];
 const OE_PWM_PERIOD_US: u64 = 1_000;
 /// On-phases shorter than this are busy-waited: the embassy timer only ticks every ~30.5 us.
 const BUSY_WAIT_THRESHOLD_US: u64 = 120;
@@ -49,7 +55,9 @@ const BUTTON_DEBOUNCE_PWM_TICKS: u8 = 30;
 const SAVE_DELAY: Duration = Duration::from_secs(2);
 /// DataFlash offset of the settings page (BLE SNV is disabled, so the area is free).
 const SETTINGS_FLASH_ADDR: u32 = 0;
-const SETTINGS_VERSION: u8 = 1;
+/// v1: [version, mode, mix, white, uv, ir]
+/// v2: [version, mode | spread << 2, mix, white, uv, ir] (all levels are 0..=40, 6 bits)
+const SETTINGS_VERSION: u8 = 2;
 const BRIGHTNESS_DUTY_US: [u64; BRIGHTNESS_STEPS as usize + 1] = [
     0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17, 20, 24, 29, 35, 41, 49, 59, 70, 84, 100, 119, 143, 170,
     203, 242, 289, 346, 412, 492, 588, 702, 838, 1_000,
@@ -61,14 +69,18 @@ enum LampMode {
     White = 0,
     Uv = 1,
     Ir = 2,
+    /// Like white, but /OE stays on (no software PWM): brightness = number of lit LEDs,
+    /// spread over the lamp. Avoids the PWM flicker caused by BLE interrupts.
+    Spread = 3,
 }
 
 impl LampMode {
-    const COUNT: usize = 3;
+    const COUNT: usize = 4;
 
     fn next(self) -> Self {
         match self {
-            LampMode::White => LampMode::Uv,
+            LampMode::White => LampMode::Spread,
+            LampMode::Spread => LampMode::Uv,
             LampMode::Uv => LampMode::Ir,
             LampMode::Ir => LampMode::White,
         }
@@ -79,12 +91,18 @@ impl LampMode {
             0 => Some(LampMode::White),
             1 => Some(LampMode::Uv),
             2 => Some(LampMode::Ir),
+            3 => Some(LampMode::Spread),
             _ => None,
         }
     }
 
     fn name(self) -> &'static str {
-        match self { Self::White => "white", Self::Uv => "uv", Self::Ir => "ir" }
+        match self { Self::White => "white", Self::Uv => "uv", Self::Ir => "ir", Self::Spread => "spread" }
+    }
+
+    /// Knob alone sets the colour mix, button + knob the brightness.
+    fn is_white(self) -> bool {
+        matches!(self, Self::White | Self::Spread)
     }
 }
 
@@ -142,28 +160,32 @@ impl LampSettings {
     };
 
     fn encode(&self) -> [u8; PAYLOAD_LEN] {
+        let level = |mode: LampMode| self.brightness_step[mode as usize].clamp(0, BRIGHTNESS_STEPS) as u8;
         [
             SETTINGS_VERSION,
-            self.mode as u8,
+            self.mode as u8 | level(LampMode::Spread) << 2,
             self.mix_step.clamp(0, MIX_STEPS) as u8,
-            self.brightness_step[0].clamp(0, BRIGHTNESS_STEPS) as u8,
-            self.brightness_step[1].clamp(0, BRIGHTNESS_STEPS) as u8,
-            self.brightness_step[2].clamp(0, BRIGHTNESS_STEPS) as u8,
+            level(LampMode::White),
+            level(LampMode::Uv),
+            level(LampMode::Ir),
         ]
     }
 
     fn decode(payload: &[u8; PAYLOAD_LEN]) -> Option<Self> {
-        if payload[0] != SETTINGS_VERSION {
-            return None;
-        }
+        let (mode, spread) = match payload[0] {
+            1 => (payload[1], INITIAL_BRIGHTNESS_STEP),
+            2 => (payload[1] & 0b11, (payload[1] >> 2) as i32),
+            _ => return None,
+        };
+        let mut brightness_step = [0; LampMode::COUNT];
+        brightness_step[LampMode::White as usize] = payload[3] as i32;
+        brightness_step[LampMode::Uv as usize] = payload[4] as i32;
+        brightness_step[LampMode::Ir as usize] = payload[5] as i32;
+        brightness_step[LampMode::Spread as usize] = spread;
         Some(Self {
-            mode: LampMode::from_u8(payload[1])?,
+            mode: LampMode::from_u8(mode)?,
             mix_step: (payload[2] as i32).min(MIX_STEPS),
-            brightness_step: [
-                (payload[3] as i32).min(BRIGHTNESS_STEPS),
-                (payload[4] as i32).min(BRIGHTNESS_STEPS),
-                (payload[5] as i32).min(BRIGHTNESS_STEPS),
-            ],
+            brightness_step: brightness_step.map(|step| step.min(BRIGHTNESS_STEPS)),
         })
     }
 }
@@ -195,6 +217,60 @@ fn led_group_frame(led_addresses: &[usize]) -> [u8; LED_COUNT] {
     frame
 }
 
+/// Spread mode: number of cool and warm LEDs to light. The total follows the brightness
+/// (0..=30 LEDs), the mix splits it like the white mode; once one colour runs out of LEDs,
+/// the rest goes to the other one.
+fn spread_counts(brightness_step: i32, mix_step: i32) -> (usize, usize) {
+    const PER_GROUP: i32 = CW_SPREAD_ORDER.len() as i32;
+    let total = (brightness_step.clamp(0, BRIGHTNESS_STEPS) * 2 * PER_GROUP + BRIGHTNESS_STEPS / 2) / BRIGHTNESS_STEPS;
+    let mut ww = (total * mix_step.clamp(0, MIX_STEPS) + MIX_STEPS / 2) / MIX_STEPS;
+    let mut cw = total - ww;
+    if cw > PER_GROUP {
+        ww += cw - PER_GROUP;
+        cw = PER_GROUP;
+    }
+    if ww > PER_GROUP {
+        cw += ww - PER_GROUP;
+        ww = PER_GROUP;
+    }
+    (cw as usize, ww as usize)
+}
+
+/// What the shift registers currently hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    /// One of the fixed colour groups (index into the group frames).
+    Group(usize),
+    /// The first `cw` / `ww` LEDs of the spread orders.
+    Spread { cw: usize, ww: usize },
+}
+
+impl Frame {
+    fn data(self, groups: &[[u8; LED_COUNT]]) -> [u8; LED_COUNT] {
+        match self {
+            Frame::Group(idx) => groups[idx],
+            Frame::Spread { cw, ww } => {
+                let mut frame = [0u8; LED_COUNT];
+                for &address in CW_SPREAD_ORDER[..cw].iter().chain(&WW_SPREAD_ORDER[..ww]) {
+                    frame[address] = 0xFF;
+                }
+                frame
+            }
+        }
+    }
+}
+
+/// Shift `frame` into the registers and latch it, unless it is already loaded.
+fn load(sr_driver: &mut LampDriver, loaded_frame: &mut Option<Frame>, groups: &[[u8; LED_COUNT]], frame: Frame) {
+    if *loaded_frame != Some(frame) {
+        sr_driver
+            .write(0, &frame.data(groups))
+            .expect("48 LED frame should fit driver buffer");
+        sr_driver.load_frame();
+        *loaded_frame = Some(frame);
+    }
+}
+
 /// Wait with sub-tick precision for short on-phases, yield to the executor for long ones.
 async fn wait_us(us: u64) {
     if us == 0 {
@@ -213,7 +289,7 @@ type LampDriver = SrLedDriver<'static, peripherals::SPI0, LED_COUNT>;
 /// Show one LED group for `on_us` microseconds, then blank the outputs again.
 async fn on_phase(
     sr_driver: &mut LampDriver,
-    loaded_frame: &mut Option<usize>,
+    loaded_frame: &mut Option<Frame>,
     frames: &[[u8; LED_COUNT]],
     frame_idx: usize,
     on_us: u64,
@@ -221,13 +297,7 @@ async fn on_phase(
     if on_us == 0 {
         return;
     }
-    if *loaded_frame != Some(frame_idx) {
-        sr_driver
-            .write(0, &frames[frame_idx])
-            .expect("48 LED frame should fit driver buffer");
-        sr_driver.load_frame();
-        *loaded_frame = Some(frame_idx);
-    }
+    load(sr_driver, loaded_frame, frames, Frame::Group(frame_idx));
     sr_driver.enable_output();
     wait_us(on_us).await;
     sr_driver.disable_output();
@@ -252,7 +322,7 @@ async fn lamp_task(
         led_group_frame(UV_LED_ADDRESSES),
         led_group_frame(IR_LED_ADDRESSES),
     ];
-    let mut loaded_frame: Option<usize> = None;
+    let mut loaded_frame: Option<Frame> = None;
     sr_driver.disable_output();
 
     let (mut store, stored) = SettingsStore::load(SETTINGS_FLASH_ADDR);
@@ -292,7 +362,7 @@ async fn lamp_task(
                 if button_pressed {
                     rotated_while_pressed = true;
                 }
-                if settings.mode == LampMode::White && !button_pressed {
+                if settings.mode.is_white() && !button_pressed {
                     settings.mix_step = (settings.mix_step + delta).clamp(0, MIX_STEPS);
                 } else {
                     let brightness = &mut settings.brightness_step[settings.mode as usize];
@@ -340,15 +410,14 @@ async fn lamp_task(
                         writeln!(reply, "OK mode={}", settings.mode.name()).unwrap();
                     }
                     Command::Status => {
-                        writeln!(reply, "OK mode={} mix={} brightness={} white={} uv={} ir={}",
-                            settings.mode.name(), settings.mix_step,
-                            settings.brightness_step[settings.mode as usize].clamp(0, BRIGHTNESS_STEPS),
-                            settings.brightness_step[0].clamp(0, BRIGHTNESS_STEPS),
-                            settings.brightness_step[1].clamp(0, BRIGHTNESS_STEPS),
-                            settings.brightness_step[2].clamp(0, BRIGHTNESS_STEPS)).unwrap();
+                        let level = |mode: LampMode| settings.brightness_step[mode as usize].clamp(0, BRIGHTNESS_STEPS);
+                        writeln!(reply, "OK mode={} mix={} brightness={} white={} spread={} uv={} ir={}",
+                            settings.mode.name(), settings.mix_step, level(settings.mode),
+                            level(LampMode::White), level(LampMode::Spread),
+                            level(LampMode::Uv), level(LampMode::Ir)).unwrap();
                     }
                     Command::Help => {
-                        reply.write_str("OK brightness 0..40; mix 0..40; mode white|uv|ir; status; help\n").unwrap();
+                        reply.write_str("OK br 0..40; mx 0..40; md wh|sp|uv|ir; st; he\n").unwrap();
                     }
                 }
                 if settings != previous { last_change = Instant::now(); }
@@ -369,9 +438,25 @@ async fn lamp_task(
             saved_payload = payload;
         }
 
+        // --- Spread: /OE stays on, the frame sets the brightness ---
+        if settings.mode == LampMode::Spread {
+            let (cw, ww) = spread_counts(settings.brightness_step[LampMode::Spread as usize], settings.mix_step);
+            load(&mut sr_driver, &mut loaded_frame, &frames, Frame::Spread { cw, ww });
+            if cw + ww > 0 {
+                sr_driver.enable_output();
+            } else {
+                sr_driver.disable_output();
+            }
+            Timer::after_micros(OE_PWM_PERIOD_US).await;
+            continue;
+        }
+
         // --- One software PWM period on /OE ---
+        // Spread mode leaves /OE on; the PWM modes start every period with it off.
+        sr_driver.disable_output();
         let on_us = brightness_duty_us(settings.brightness_step[settings.mode as usize]);
         match settings.mode {
+            LampMode::Spread => unreachable!(),
             LampMode::White => {
                 // Time-multiplex the two white groups; the total on-time stays constant, so the
                 // overall brightness doesn't change with the colour temperature.

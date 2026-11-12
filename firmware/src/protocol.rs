@@ -1,4 +1,8 @@
 //! Newline-delimited cyberlamp console commands, independent of the BLE transport.
+//!
+//! Commands are two letters, so they are quick to type in a serial terminal:
+//! `br 20`, `mx 20`, `md wh|sp|uv|ir`, `st`, `he`. The original long names
+//! (`brightness`, `mix`, `mode white`, `status`, `help`) are still accepted.
 
 use core::fmt;
 
@@ -9,7 +13,7 @@ pub const MAX_LINE: usize = 64;
 pub enum Command {
     Brightness(u8),
     Mix(u8),
-    Mode(u8), // existing settings encoding: white=0, uv=1, ir=2
+    Mode(u8), // settings encoding: white=0, uv=1, ir=2, spread=3
     Status,
     Help,
 }
@@ -27,9 +31,9 @@ impl CommandError {
     pub fn message(self) -> &'static str {
         match self {
             Self::Text => "ERR invalid text\n",
-            Self::Arguments => "ERR arguments; use help\n",
+            Self::Arguments => "ERR arguments; use he\n",
             Self::Range => "ERR range 0..40\n",
-            Self::Unknown => "ERR unknown command; use help\n",
+            Self::Unknown => "ERR unknown command; use he\n",
             Self::TooLong => "ERR line too long\n",
         }
     }
@@ -44,9 +48,9 @@ fn parse(line: &[u8]) -> Result<Command, CommandError> {
         return Err(CommandError::Arguments);
     }
     match name {
-        "status" if argument.is_none() => Ok(Command::Status),
-        "help" if argument.is_none() => Ok(Command::Help),
-        "brightness" | "mix" => {
+        "st" | "status" if argument.is_none() => Ok(Command::Status),
+        "he" | "help" if argument.is_none() => Ok(Command::Help),
+        "br" | "brightness" | "mx" | "mix" => {
             let level = argument
                 .ok_or(CommandError::Arguments)?
                 .parse::<u8>()
@@ -54,19 +58,20 @@ fn parse(line: &[u8]) -> Result<Command, CommandError> {
             if level > MAX_LEVEL {
                 return Err(CommandError::Range);
             }
-            Ok(if name == "brightness" {
+            Ok(if matches!(name, "br" | "brightness") {
                 Command::Brightness(level)
             } else {
                 Command::Mix(level)
             })
         }
-        "mode" => match argument {
-            Some("white") => Ok(Command::Mode(0)),
+        "md" | "mode" => match argument {
+            Some("wh" | "white") => Ok(Command::Mode(0)),
             Some("uv") => Ok(Command::Mode(1)),
             Some("ir") => Ok(Command::Mode(2)),
+            Some("sp" | "spread") => Ok(Command::Mode(3)),
             _ => Err(CommandError::Arguments),
         },
-        "status" | "help" => Err(CommandError::Arguments),
+        "st" | "status" | "he" | "help" => Err(CommandError::Arguments),
         _ => Err(CommandError::Unknown),
     }
 }
@@ -172,6 +177,22 @@ mod tests {
         assert_eq!(parse(b" brightness 0 "), Ok(Command::Brightness(0)));
         assert_eq!(parse(b"mix 40"), Ok(Command::Mix(40)));
         assert_eq!(parse(b"mode ir"), Ok(Command::Mode(2)));
+    }
+
+    #[test]
+    fn two_letter_commands() {
+        assert_eq!(parse(b"br 20"), Ok(Command::Brightness(20)));
+        assert_eq!(parse(b"mx 0"), Ok(Command::Mix(0)));
+        assert_eq!(parse(b"md wh"), Ok(Command::Mode(0)));
+        assert_eq!(parse(b"md uv"), Ok(Command::Mode(1)));
+        assert_eq!(parse(b"md ir"), Ok(Command::Mode(2)));
+        assert_eq!(parse(b"md sp"), Ok(Command::Mode(3)));
+        assert_eq!(parse(b"mode spread"), Ok(Command::Mode(3)));
+        assert_eq!(parse(b"st"), Ok(Command::Status));
+        assert_eq!(parse(b"he"), Ok(Command::Help));
+        assert_eq!(parse(b"br 41"), Err(CommandError::Range));
+        assert_eq!(parse(b"md xx"), Err(CommandError::Arguments));
+        assert_eq!(parse(b"st 1"), Err(CommandError::Arguments));
     }
 
     #[test]
