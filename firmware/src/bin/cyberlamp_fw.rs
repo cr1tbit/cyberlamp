@@ -7,7 +7,6 @@
 #![no_main]
 
 use ch58x_hal as hal;
-use core::fmt::Write as _;
 use embassy_executor::Spawner;
 use hal::uart::UartTx;
 use hal::ble;
@@ -16,42 +15,8 @@ use ch58x_rs_kit::ble_periph::{common_init_named, devinfo_init, nus, peripheral_
 use ch58x_rs_kit::logger::init as init_logger;
 use ch58x_rs_kit::sr_led_driver::SrLedDriver;
 use ch58x_rs_kit::{get_configured_rtc, log, tmos_mainloop};
-use cyberlamp_rs::lamp::{lamp_task, leds_off, Request, LED_COUNT, REPLIES, REQUESTS};
-use cyberlamp_rs::protocol::{Decoder, Reply};
+use cyberlamp_rs::lamp::{lamp_task, leds_off, nus_console, LED_COUNT};
 
-
-#[embassy_executor::task]
-async fn nus_console() {
-    let mut decoder = Decoder::new();
-    let mut session = None;
-    loop {
-        let packet = nus::receive().await;
-        if !packet.session.is_current() { continue; }
-        if session != Some(packet.session) {
-            decoder.reset();
-            session = Some(packet.session);
-        }
-        for &byte in packet.bytes() {
-            if !packet.session.is_current() { break; }
-            if let Some(command) = decoder.push(byte) {
-                let reply = match command {
-                    Ok(command) => {
-                        REQUESTS.send(Request::Console { session: packet.session, command }).await;
-                        REPLIES.receive().await
-                    }
-                    Err(error) => {
-                        let mut reply = Reply::new();
-                        reply.write_str(error.message()).unwrap();
-                        reply
-                    }
-                };
-                if let Err(error) = nus::send(packet.session, reply.bytes()).await {
-                    log!("NUS reply not sent: {:?}", error);
-                }
-            }
-        }
-    }
-}
 
 #[qingke_rt::entry]
 fn main() -> ! {

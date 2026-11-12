@@ -15,7 +15,7 @@ use hal::delay::CycleDelay;
 use hal::gpio::{Input, Pull};
 use hal::peripherals;
 
-use crate::protocol::{Command, Reply, MAX_LEVEL};
+use crate::protocol::{Command, Decoder, Reply, MAX_LEVEL};
 
 pub const LED_COUNT: usize = 48;
 
@@ -269,6 +269,40 @@ async fn on_phase(
     sr_driver.enable_output();
     wait_us(on_us).await;
     sr_driver.disable_output();
+}
+
+/// BLE console: decode NUS lines into [`Request::Console`] and send the replies back.
+#[embassy_executor::task]
+pub async fn nus_console() {
+    let mut decoder = Decoder::new();
+    let mut session = None;
+    loop {
+        let packet = nus::receive().await;
+        if !packet.session.is_current() { continue; }
+        if session != Some(packet.session) {
+            decoder.reset();
+            session = Some(packet.session);
+        }
+        for &byte in packet.bytes() {
+            if !packet.session.is_current() { break; }
+            if let Some(command) = decoder.push(byte) {
+                let reply = match command {
+                    Ok(command) => {
+                        REQUESTS.send(Request::Console { session: packet.session, command }).await;
+                        REPLIES.receive().await
+                    }
+                    Err(error) => {
+                        let mut reply = Reply::new();
+                        reply.write_str(error.message()).unwrap();
+                        reply
+                    }
+                };
+                if let Err(error) = nus::send(packet.session, reply.bytes()).await {
+                    log!("NUS reply not sent: {:?}", error);
+                }
+            }
+        }
+    }
 }
 
 fn console_command(settings: &mut LampSettings, command: Command, reply: &mut Reply) {
