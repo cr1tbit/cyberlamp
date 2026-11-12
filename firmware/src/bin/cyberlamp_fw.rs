@@ -15,7 +15,7 @@ use hal::gpio::{Input, Pull};
 use hal::uart::UartTx;
 use hal::{ble, peripherals};
 use ch58x_rs_kit::ble_periph::current_time_service::current_time_init;
-use ch58x_rs_kit::ble_periph::{common_init, devinfo_init, peripheral_keep_running};
+use ch58x_rs_kit::ble_periph::{common_init_named, devinfo_init, peripheral_keep_running};
 use ch58x_rs_kit::ble_periph::nus;
 use cyberlamp_rs::protocol::{Command, Decoder, Reply, MAX_LEVEL};
 use ch58x_rs_kit::logger::init as init_logger;
@@ -543,7 +543,7 @@ async fn app_main(spawner: Spawner) -> ! {
     log!("BLE hal task id: {}", task_id);
 
     unsafe {
-        common_init();
+        common_init_named("cyberlamp");
         use hal::ble::ffi::*;
         use hal::ble::gap::GAPRole_SetParameter;
         // Automatic 2M PHY negotiation establishes a link but stalls ATT on this board.

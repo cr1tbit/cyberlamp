@@ -1,0 +1,39 @@
+# Publishes the Web Bluetooth lamp control page (firmware/utils/lamp_control.html)
+# to GitHub Pages: https://cr1tbit.github.io/cyberlamp/
+name: Lamp control page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - firmware/utils/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the page
+        run: |
+          mkdir _site
+          cp firmware/utils/lamp_control.html _site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

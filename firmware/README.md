@@ -8,7 +8,10 @@ Rust firmware for the cyberlamp-light board (CH582F).
   order spread over the whole lamp. It has no software PWM, so BLE activity can't make it flicker.
 - LEDs: 48 channels on SM16106SC shift registers (SPI0: SCLK=PA13, DAT=PA14; /OE=PA8 software PWM, LAT=PA9)
 - Settings are saved to DataFlash two seconds after the last change
-- BLE: Nordic UART Service console, see below
+- BLE: Nordic UART Service console, see below. [`utils/lamp_control.html`](utils/lamp_control.html)
+  is a Web Bluetooth page with buttons and sliders for it, published at
+  <https://cr1tbit.github.io/cyberlamp/> (Chrome/Edge). To try local changes, serve it from
+  `http://localhost`, e.g. `python3 -m http.server` in `utils/`
 
 `cyberlamp_fw` is the full firmware, `cyberlamp_fw_simple` a minimal LED test without BLE.
 
