@@ -51,7 +51,7 @@ dependencies = [
 [[package]]
 name = "ch58x-rs-kit"
 version = "0.1.0"
-source = "git+https://github.com/cr1tbit/ch58x-rs-playground.git?branch=main#8f7765fcd090ade0689424eda821ad4b130566dc"
+source = "git+https://github.com/cr1tbit/ch58x-rs-playground.git?branch=main#ec4ffa4184894f7059bf251c66227efb7e75d412"
 dependencies = [
  "ch58x-hal",
  "critical-section",

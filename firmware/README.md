@@ -13,7 +13,15 @@ Rust firmware for the cyberlamp-light board (CH582F).
   <https://cr1tbit.github.io/cyberlamp/> (Chrome/Edge). To try local changes, serve it from
   `http://localhost`, e.g. `python3 -m http.server` in `utils/`
 
-`cyberlamp_fw` is the full firmware, `cyberlamp_fw_simple` a minimal LED test without BLE.
+Firmware variants:
+
+- `cyberlamp_fw`: full firmware with the BLE console (connectable, Nordic UART Service)
+- `cyberlamp_fw_adv`: controlled by BLE broadcasts, for many lamps at once. The lamp only
+  listens (not connectable, never transmits); every lamp in range follows the same sender.
+  Send a state from a Linux PC with `python3 utils/lamp_broadcast.py --mode sp --brightness 20 --mix 10`
+  (BlueZ `bluetoothctl`, no root). Packet format: [`src/adv.rs`](src/adv.rs).
+  A lamp applies each broadcast once, so the knob still works between broadcasts.
+- `cyberlamp_fw_simple`: minimal LED test without BLE
 
 ## Building and flashing
 
