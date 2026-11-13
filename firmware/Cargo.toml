@@ -17,7 +17,8 @@ qingke = { version = "0.5.0", features = ["critical-section-impl"] }
 qingke-rt = { version = "0.5.0", features = ["highcode"] }
 embedded-hal-local = { version = "1.0.0-rc.2", package = "embedded-hal" }
 
-embassy-executor = { version = "0.7.0", features = ["nightly", "arch-riscv32", "executor-thread"] }
+# No arch-* feature: ch58x-hal provides the executor (hal::embassy::Executor) and its __pender.
+embassy-executor = { version = "0.7.0", features = ["nightly"] }
 embassy-futures = "0.1.1"
 embassy-sync = "0.6.2"
 embassy-time = "0.4.0"

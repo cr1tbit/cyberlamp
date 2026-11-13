@@ -23,7 +23,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "ch58x"
 version = "0.4.0"
-source = "git+https://github.com/cr1tbit/ch58x-hal.git?branch=main#9af68081a0ab5dd0b841748bb771d81027f7f0d5"
+source = "git+https://github.com/cr1tbit/ch58x-hal.git?branch=main#fd6e463bc83675d731f2f024a050519ad8386061"
 dependencies = [
  "vcell",
 ]
@@ -31,13 +31,15 @@ dependencies = [
 [[package]]
 name = "ch58x-hal"
 version = "0.0.2"
-source = "git+https://github.com/cr1tbit/ch58x-hal.git?branch=main#9af68081a0ab5dd0b841748bb771d81027f7f0d5"
+source = "git+https://github.com/cr1tbit/ch58x-hal.git?branch=main#fd6e463bc83675d731f2f024a050519ad8386061"
 dependencies = [
  "ch58x",
  "critical-section",
+ "embassy-executor",
  "embassy-sync",
  "embassy-time-driver",
  "embassy-time-queue-utils",
+ "embassy-usb-driver",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
@@ -51,7 +53,7 @@ dependencies = [
 [[package]]
 name = "ch58x-rs-kit"
 version = "0.1.0"
-source = "git+https://github.com/cr1tbit/ch58x-rs-playground.git?branch=main#ec4ffa4184894f7059bf251c66227efb7e75d412"
+source = "git+https://github.com/cr1tbit/ch58x-rs-playground.git?branch=main#de75106864b2f745d9eddeafb5c3ab49200b9aa3"
 dependencies = [
  "ch58x-hal",
  "critical-section",
@@ -207,6 +209,15 @@ checksum = "dc55c748d16908a65b166d09ce976575fb8852cf60ccd06174092b41064d8f83"
 dependencies = [
  "embassy-executor",
  "heapless",
+]
+
+[[package]]
+name = "embassy-usb-driver"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "340c5ce591ef58c6449e43f51d2c53efe1bf0bb6a40cbf80afa0d259c7d52c76"
+dependencies = [
+ "embedded-io-async",
 ]
 
 [[package]]

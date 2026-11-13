@@ -113,16 +113,7 @@ static mut CENTRAL_BOND_CALLBACKS: gapBondCBs_t = gapBondCBs_t {
 
 #[qingke_rt::entry]
 fn main() -> ! {
-    // Poll continuously, like cyberlamp_fw: the lamp is mains-powered.
-    let executor = embassy_executor::raw::Executor::new(core::ptr::null_mut());
-    // SAFETY: this entry function never returns, and the executor is never moved
-    // after taking its address. Only this thread polls it.
-    let executor: &'static embassy_executor::raw::Executor = unsafe { &*(&executor as *const _) };
-    let spawner = executor.spawner();
-    spawner.spawn(app_main(spawner)).unwrap();
-    loop {
-        unsafe { executor.poll() };
-    }
+    hal::embassy::Executor::new().run(|spawner| spawner.must_spawn(app_main(spawner)))
 }
 
 #[qingke_rt::interrupt]

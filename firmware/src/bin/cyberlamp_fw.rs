@@ -20,19 +20,7 @@ use cyberlamp_rs::lamp::{lamp_task, leds_off, nus_console, LED_COUNT};
 
 #[qingke_rt::entry]
 fn main() -> ! {
-    // Cyberlamp is mains-powered. Poll continuously: qingke-rt's WFE-based idle can
-    // stall both the lamp and BLE, and plain WFI does not reliably wake with IRQs
-    // masked by Embassy's standard executor. Keep this board awake until that path
-    // is fixed; tasks and timers still use Embassy's normal cooperative scheduler.
-    let executor = embassy_executor::raw::Executor::new(core::ptr::null_mut());
-    // SAFETY: this entry function never returns, and the executor is never moved
-    // after taking its address. Only this thread polls it.
-    let executor: &'static embassy_executor::raw::Executor = unsafe { &*(&executor as *const _) };
-    let spawner = executor.spawner();
-    spawner.spawn(app_main(spawner)).unwrap();
-    loop {
-        unsafe { executor.poll(); }
-    }
+    hal::embassy::Executor::new().run(|spawner| spawner.must_spawn(app_main(spawner)))
 }
 
 #[qingke_rt::interrupt]
